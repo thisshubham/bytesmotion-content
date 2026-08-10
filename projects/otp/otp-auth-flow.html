@@ -1,0 +1,1191 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Secure Verification</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@200;300;400;600&family=IBM+Plex+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+/* ============================================================
+   TOKENS — palette fixed by the brief
+   ============================================================ */
+:root{
+  --void:#020617;
+  --deep:#050816;
+  --panel:#0b1026;
+
+  --cyan:#22d3ee;
+  --blue:#3b82f6;
+  --violet:#7c3aed;
+  --magenta:#c026d3;
+  --ok:#34e5b0;          /* neon green-cyan, success only */
+  --bad:#fb7185;         /* controlled red-pink, error only */
+  --star:#e8f0ff;
+
+  --brd:rgba(180,215,255,.14);
+
+  --ff-ui:'Sora',system-ui,-apple-system,sans-serif;
+  --ff-mono:'IBM Plex Mono',ui-monospace,monospace;
+
+  --ease:cubic-bezier(.16,1,.3,1);
+  --spring:cubic-bezier(.34,1.56,.64,1);
+
+  --sw:168px;            /* shell width  */
+  --sh:168px;            /* shell height */
+  --sr:50%;              /* shell radius */
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  background:var(--void);
+  color:var(--star);
+  font-family:var(--ff-ui);
+  overflow:hidden;
+  -webkit-font-smoothing:antialiased;
+}
+
+/* ============================================================
+   GALAXY — layered radials, never a flat gradient
+   ============================================================ */
+.sky{position:fixed;inset:0;z-index:0;overflow:hidden}
+.sky__void{
+  position:absolute;inset:0;
+  background:radial-gradient(125% 95% at 50% 52%, #0a1128 0%, var(--deep) 46%, var(--void) 100%);
+}
+.neb{position:absolute;border-radius:50%;filter:blur(72px);opacity:.46;will-change:transform}
+.neb--v{width:70vmax;height:70vmax;left:-20vmax;top:-24vmax;
+  background:radial-gradient(circle,rgba(124,58,237,.55),transparent 66%);
+  animation:d1 70s var(--ease) infinite alternate}
+.neb--c{width:56vmax;height:56vmax;right:-15vmax;top:2vmax;
+  background:radial-gradient(circle,rgba(34,211,238,.32),transparent 68%);
+  animation:d2 86s var(--ease) infinite alternate}
+.neb--m{width:62vmax;height:62vmax;left:6vmax;bottom:-28vmax;
+  background:radial-gradient(circle,rgba(192,38,211,.3),transparent 66%);
+  animation:d3 78s var(--ease) infinite alternate}
+@keyframes d1{to{transform:translate3d(7vmax,5vmax,0) scale(1.15)}}
+@keyframes d2{to{transform:translate3d(-6vmax,7vmax,0) scale(1.1)}}
+@keyframes d3{to{transform:translate3d(5vmax,-6vmax,0) scale(1.13)}}
+
+.galaxy{position:absolute;border-radius:50%;filter:blur(16px);opacity:.15;
+  background:radial-gradient(ellipse,rgba(232,240,255,.8),rgba(124,58,237,.3) 42%,transparent 72%)}
+.galaxy--1{width:210px;height:70px;left:11%;top:21%;transform:rotate(-24deg)}
+.galaxy--2{width:150px;height:48px;right:15%;bottom:24%;transform:rotate(16deg)}
+
+.fog{position:absolute;inset:0;pointer-events:none;
+  background:radial-gradient(100% 70% at 50% 100%,rgba(11,16,38,.7),transparent 62%)}
+
+#field{position:fixed;inset:0;z-index:1;pointer-events:none}
+
+/* galaxy brightens once the system is unlocked */
+.neb,.galaxy{transition:opacity 1.4s var(--ease)}
+body.is-open .neb{opacity:.66}
+body.is-open .galaxy{opacity:.22}
+
+/* ============================================================
+   STAGE + SHELL
+   The bubble and the panel are the SAME element: it expands.
+   Height is measured in JS so the morph is smooth at any content size.
+   ============================================================ */
+.stage{position:relative;z-index:2;height:100%;display:grid;place-items:center;padding:20px}
+
+.shell{
+  position:relative;
+  width:var(--sw);height:var(--sh);
+  border-radius:var(--sr);
+  display:grid;place-items:center;
+  cursor:pointer;
+  transition:
+    width  .85s var(--ease),
+    height .85s var(--ease),
+    border-radius .85s var(--ease),
+    transform .5s var(--ease);
+  -webkit-tap-highlight-color:transparent;
+}
+.shell.is-panel{cursor:default}
+
+/* glass surface */
+.glass{
+  position:absolute;inset:0;border-radius:inherit;
+  background:
+    radial-gradient(circle at 30% 20%,rgba(255,255,255,.09),transparent 44%),
+    linear-gradient(160deg,rgba(11,16,38,.72),rgba(2,6,23,.8));
+  border:1px solid var(--brd);
+  backdrop-filter:blur(16px) saturate(150%);
+  -webkit-backdrop-filter:blur(16px) saturate(150%);
+  box-shadow:
+    inset 0 1px 20px rgba(180,215,255,.09),
+    inset 0 0 50px rgba(124,58,237,.14),
+    0 20px 60px rgba(2,6,23,.7);
+  transition:box-shadow .6s var(--ease),border-color .6s var(--ease);
+}
+
+/* neon rim — rotating conic border */
+.rim{
+  position:absolute;inset:-1px;border-radius:inherit;padding:1px;pointer-events:none;
+  background:conic-gradient(from var(--ra,0deg),
+    transparent 0deg,var(--cyan) 46deg,var(--blue) 96deg,var(--violet) 150deg,transparent 210deg,transparent 360deg);
+  -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);
+  -webkit-mask-composite:xor;
+  mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);
+  mask-composite:exclude;
+  opacity:.5;
+  animation:rot 9s linear infinite;
+  transition:opacity .5s var(--ease);
+}
+@keyframes rot{to{--ra:360deg}}
+@property --ra{syntax:'<angle>';inherits:false;initial-value:0deg}
+
+/* outer bloom */
+.bloom{
+  position:absolute;inset:-34%;border-radius:50%;pointer-events:none;
+  background:radial-gradient(circle,rgba(34,211,238,.2),rgba(124,58,237,.11) 38%,transparent 68%);
+  filter:blur(24px);
+  animation:breathe 6.5s ease-in-out infinite;
+  transition:opacity .5s var(--ease);
+}
+@keyframes breathe{0%,100%{opacity:.6;transform:scale(1)}50%{opacity:1;transform:scale(1.06)}}
+
+/* orbiting particles around the bubble */
+.orb{position:absolute;inset:-16%;pointer-events:none;animation:rot2 26s linear infinite}
+.orb--r{inset:-28%;animation-duration:44s;animation-direction:reverse}
+.orb i{position:absolute;top:-2.5px;left:50%;width:3px;height:3px;border-radius:50%;
+  background:var(--star);box-shadow:0 0 8px 2px rgba(232,240,255,.65)}
+.orb i.b{top:auto;bottom:-2.5px;background:var(--cyan);box-shadow:0 0 9px 2px rgba(34,211,238,.7)}
+.orb i.c{top:50%;left:-2.5px;background:var(--magenta);box-shadow:0 0 9px 2px rgba(192,38,211,.6)}
+@keyframes rot2{to{transform:rotate(360deg)}}
+.shell.is-panel .orb{opacity:.5;inset:-9%}
+
+/* floating idle motion (bubble only) */
+.shell:not(.is-panel){animation:float 7s ease-in-out infinite}
+@keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-9px)}}
+
+/* cursor ripple */
+.ripple-l{
+  position:absolute;inset:0;border-radius:inherit;pointer-events:none;opacity:0;
+  background:radial-gradient(circle at var(--mx,50%) var(--my,50%),rgba(255,255,255,.14),transparent 30%);
+  transition:opacity .4s var(--ease);
+}
+.shell:not(.is-panel):hover .ripple-l{opacity:1}
+
+/* hover: glow up, scale, energy pulse */
+.shell:not(.is-panel):hover{transform:scale(1.055)}
+.shell:not(.is-panel):hover .rim{opacity:1;animation-duration:4s}
+.shell:not(.is-panel):hover .bloom{opacity:1;inset:-42%}
+.shell:not(.is-panel):hover .glass{box-shadow:
+  inset 0 1px 26px rgba(180,215,255,.14),
+  inset 0 0 70px rgba(34,211,238,.2),
+  0 0 70px rgba(34,211,238,.3)}
+.shell:focus-visible{outline:none}
+.shell:focus-visible .rim{opacity:1;box-shadow:0 0 0 2px var(--cyan)}
+
+/* ============================================================
+   BUBBLE CONTENT
+   ============================================================ */
+.bubble{position:relative;z-index:3;text-align:center;pointer-events:none}
+.bubble__lock{
+  width:26px;height:26px;margin:0 auto 9px;display:block;
+  fill:none;stroke:var(--cyan);stroke-width:1.6;
+  filter:drop-shadow(0 0 8px rgba(34,211,238,.8));
+  animation:lockpulse 3.4s ease-in-out infinite;
+}
+@keyframes lockpulse{0%,100%{opacity:.78}50%{opacity:1}}
+.bubble__word{
+  display:block;font-family:var(--ff-mono);font-size:15px;font-weight:500;
+  letter-spacing:.42em;text-indent:.42em;color:var(--star);
+  text-shadow:0 0 16px rgba(34,211,238,.5);
+}
+.bubble__sub{
+  display:block;margin-top:8px;font-family:var(--ff-mono);
+  font-size:7.5px;font-weight:300;letter-spacing:.26em;
+  color:rgba(34,211,238,.6);text-transform:uppercase;
+}
+/* hint sits OUTSIDE the bubble so the bubble stays clean */
+.tap-hint{
+  position:absolute;left:50%;transform:translateX(-50%);
+  bottom:-46px;
+  font-family:var(--ff-mono);font-size:8.5px;font-weight:300;
+  letter-spacing:.3em;color:rgba(232,240,255,.3);
+  white-space:nowrap;pointer-events:none;
+  transition:opacity .4s var(--ease),color .4s var(--ease);
+}
+.shell:hover .tap-hint{color:rgba(34,211,238,.7)}
+.shell.is-panel .tap-hint,
+.shell.is-panel .bubble{opacity:0;pointer-events:none;transition:opacity .3s}
+
+/* ============================================================
+   UNLOCK TRANSITION  (~1.4s)
+   ============================================================ */
+body.is-unlocking .shell{animation:unlock 1.4s var(--ease) forwards}
+@keyframes unlock{
+  0%{transform:scale(1)}
+  16%{transform:scale(.86)}        /* shrink */
+  30%{transform:scale(.82)}        /* charge */
+  52%{transform:scale(1.05)}       /* expand */
+  100%{transform:scale(1)}
+}
+body.is-unlocking .rim{opacity:1;animation-duration:1.1s}
+
+.flash{
+  position:fixed;inset:0;z-index:3;pointer-events:none;opacity:0;
+  background:radial-gradient(circle at 50% 50%,rgba(255,255,255,.85),rgba(34,211,238,.4) 20%,transparent 52%);
+}
+body.is-unlocking .flash{animation:fl 1.4s var(--ease) forwards}
+@keyframes fl{0%,18%{opacity:0}32%{opacity:.85}100%{opacity:0}}
+
+.shock{
+  position:fixed;top:50%;left:50%;z-index:3;pointer-events:none;
+  width:140px;height:140px;margin:-70px 0 0 -70px;border-radius:50%;
+  border:1px solid rgba(34,211,238,.55);opacity:0;
+}
+body.is-unlocking .shock{animation:sk 1.3s var(--ease) forwards}
+body.is-unlocking .shock--2{animation-delay:.14s;border-color:rgba(124,58,237,.45)}
+@keyframes sk{0%,20%{opacity:0;transform:scale(.5)}34%{opacity:.85}100%{opacity:0;transform:scale(11)}}
+
+/* ============================================================
+   SCREENS — stacked + cross-faded; shell height animates to fit
+   ============================================================ */
+.screens{position:absolute;inset:0;z-index:3;display:grid;place-items:center}
+.screen{
+  position:absolute;
+  width:100%;padding:34px 30px;
+  opacity:0;transform:translateY(10px);
+  pointer-events:none;
+  transition:opacity .5s var(--ease),transform .5s var(--ease);
+}
+.screen.is-live{opacity:1;transform:none;pointer-events:auto;transition-delay:.12s}
+
+.eyebrow{
+  font-family:var(--ff-mono);font-size:8px;font-weight:400;
+  letter-spacing:.32em;color:rgba(34,211,238,.7);text-transform:uppercase;
+  margin-bottom:11px;
+}
+.title{
+  font-size:19px;font-weight:600;letter-spacing:-.01em;line-height:1.25;
+  margin-bottom:8px;
+}
+.desc{
+  font-size:12.5px;font-weight:200;line-height:1.55;
+  color:rgba(232,240,255,.5);margin-bottom:22px;
+}
+
+/* ---- inputs ---- */
+.label{
+  display:block;font-family:var(--ff-mono);font-size:8px;font-weight:400;
+  letter-spacing:.24em;color:rgba(34,211,238,.62);text-transform:uppercase;
+  margin-bottom:7px;
+}
+.inbox{position:relative;border-radius:11px}
+.inbox::before{
+  content:'';position:absolute;inset:-1px;border-radius:12px;padding:1px;
+  background:conic-gradient(from var(--ra2,0deg),transparent 0deg,var(--cyan) 40deg,var(--violet) 90deg,transparent 140deg);
+  -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);
+  -webkit-mask-composite:xor;
+  mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);
+  mask-composite:exclude;
+  opacity:0;transition:opacity .3s;pointer-events:none;
+}
+.inbox.lit::before{opacity:1;animation:rot3 2.6s linear infinite}
+@keyframes rot3{to{--ra2:360deg}}
+@property --ra2{syntax:'<angle>';inherits:false;initial-value:0deg}
+
+.input{
+  width:100%;padding:12px 14px;border-radius:11px;
+  background:rgba(2,6,23,.45);border:1px solid var(--brd);
+  color:var(--star);font-family:var(--ff-ui);font-size:13.5px;font-weight:300;
+  transition:border-color .3s,box-shadow .3s,background .3s;
+}
+.input::placeholder{color:rgba(232,240,255,.24);font-weight:200}
+.input:focus{
+  outline:none;border-color:rgba(34,211,238,.5);background:rgba(2,6,23,.62);
+  box-shadow:0 0 0 3px rgba(34,211,238,.08),inset 0 0 20px rgba(34,211,238,.06);
+}
+
+/* ---- primary button ---- */
+.cta{
+  position:relative;overflow:hidden;width:100%;margin-top:18px;
+  padding:13px 18px;border-radius:12px;
+  border:1px solid rgba(180,215,255,.2);
+  background:linear-gradient(100deg,rgba(34,211,238,.92),rgba(59,130,246,.92) 44%,rgba(124,58,237,.94));
+  background-size:190% 100%;
+  color:#020617;font-family:var(--ff-mono);font-size:10.5px;font-weight:500;
+  letter-spacing:.26em;text-indent:.26em;cursor:pointer;
+  box-shadow:0 6px 24px rgba(34,211,238,.22),inset 0 1px 0 rgba(255,255,255,.32);
+  transition:transform .3s var(--ease),box-shadow .3s,background-position .7s var(--ease),opacity .3s;
+}
+.cta:hover:not(:disabled){transform:scale(1.02);background-position:100% 0;
+  box-shadow:0 10px 36px rgba(34,211,238,.4),inset 0 1px 0 rgba(255,255,255,.42)}
+.cta:active:not(:disabled){transform:scale(.99)}
+.cta:disabled{opacity:.4;cursor:not-allowed}
+.cta:focus-visible{outline:2px solid var(--cyan);outline-offset:3px}
+.cta::after{
+  content:'';position:absolute;top:0;left:-60%;width:44%;height:100%;
+  background:linear-gradient(100deg,transparent,rgba(255,255,255,.5),transparent);
+  transform:skewX(-18deg);transition:left .8s var(--ease);
+}
+.cta:hover:not(:disabled)::after{left:120%}
+.cta--ok{background:linear-gradient(100deg,var(--ok),rgba(34,211,238,.9));
+  box-shadow:0 6px 26px rgba(52,229,176,.3),inset 0 1px 0 rgba(255,255,255,.34)}
+
+.rip{position:absolute;border-radius:50%;pointer-events:none;
+  background:radial-gradient(circle,rgba(255,255,255,.8),rgba(34,211,238,.3) 45%,transparent 70%);
+  animation:rp .6s var(--ease) forwards}
+@keyframes rp{0%{width:0;height:0;opacity:.9;transform:translate(-50%,-50%)}
+  100%{width:300px;height:300px;opacity:0;transform:translate(-50%,-50%)}}
+
+/* ============================================================
+   OTP BOXES  ·  signature element
+   A hardware-token readout: mono digits, scan line, TTL ring.
+   ============================================================ */
+.otp-row{display:flex;gap:8px;justify-content:space-between;margin-bottom:6px}
+.otp-cell{
+  position:relative;flex:1 1 0;min-width:0;
+  aspect-ratio:3/4;
+  border-radius:10px;
+  background:rgba(2,6,23,.5);
+  border:1px solid var(--brd);
+  box-shadow:inset 0 2px 10px rgba(0,0,0,.5);
+  transition:border-color .3s,box-shadow .3s,background .3s,transform .3s var(--spring);
+}
+.otp-cell input{
+  position:absolute;inset:0;width:100%;height:100%;
+  background:none;border:0;outline:none;
+  text-align:center;
+  font-family:var(--ff-mono);font-size:19px;font-weight:500;
+  color:var(--star);
+  caret-color:var(--cyan);
+}
+/* focused: bright rim, glow, animated energy line */
+.otp-cell.on{
+  border-color:rgba(34,211,238,.65);
+  background:rgba(2,6,23,.66);
+  box-shadow:0 0 0 3px rgba(34,211,238,.1),0 0 22px rgba(34,211,238,.3),inset 0 2px 10px rgba(0,0,0,.5);
+}
+.otp-cell.on::after{
+  content:'';position:absolute;left:22%;right:22%;bottom:7px;height:1px;
+  background:linear-gradient(90deg,transparent,var(--cyan),transparent);
+  animation:scanline 1.5s ease-in-out infinite;
+}
+@keyframes scanline{0%,100%{opacity:.25;transform:scaleX(.5)}50%{opacity:1;transform:scaleX(1)}}
+/* filled: cyan glow + digit pops in */
+.otp-cell.filled{border-color:rgba(34,211,238,.4);box-shadow:0 0 16px rgba(34,211,238,.16),inset 0 2px 10px rgba(0,0,0,.5)}
+.otp-cell.filled input{animation:pop .28s var(--spring)}
+@keyframes pop{0%{transform:scale(.5);opacity:0}100%{transform:scale(1);opacity:1}}
+
+/* error / success tinting of the whole row */
+.otp-row.bad .otp-cell{border-color:rgba(251,113,133,.55);box-shadow:0 0 18px rgba(251,113,133,.2),inset 0 2px 10px rgba(0,0,0,.5)}
+.otp-row.good .otp-cell{border-color:rgba(52,229,176,.55);box-shadow:0 0 20px rgba(52,229,176,.24),inset 0 2px 10px rgba(0,0,0,.5)}
+
+/* verifying: sweep across the row */
+.otp-row.scan{position:relative;overflow:hidden;border-radius:10px}
+.otp-row.scan::before{
+  content:'';position:absolute;top:0;bottom:0;width:36%;z-index:5;pointer-events:none;
+  background:linear-gradient(90deg,transparent,rgba(34,211,238,.22),transparent);
+  animation:sweep 1.05s linear infinite;
+}
+@keyframes sweep{0%{left:-40%}100%{left:104%}}
+
+/* container shake — deliberately small */
+.shake{animation:sh .42s cubic-bezier(.36,.07,.19,.97)}
+@keyframes sh{
+  10%,90%{transform:translateX(-2px)}
+  20%,80%{transform:translateX(3px)}
+  30%,50%,70%{transform:translateX(-4px)}
+  40%,60%{transform:translateX(4px)}
+}
+
+/* holographic verification ring around the panel */
+.vring{
+  position:absolute;inset:-14px;border-radius:calc(var(--sr) + 14px);
+  pointer-events:none;opacity:0;
+  border:1px solid rgba(34,211,238,.35);
+  transition:opacity .4s var(--ease);
+}
+.vring::before{
+  content:'';position:absolute;inset:-10px;border-radius:inherit;
+  border:1px solid rgba(124,58,237,.2);
+}
+body.is-verifying .vring{opacity:1;animation:vr 1.6s var(--ease) infinite}
+@keyframes vr{0%{transform:scale(.99);opacity:.5}50%{opacity:1}100%{transform:scale(1.015);opacity:.5}}
+
+/* ============================================================
+   STATUS BANNER  (sending / sent / verifying / error / expired / blocked)
+   ============================================================ */
+.status{
+  display:flex;align-items:center;gap:9px;
+  min-height:20px;margin-top:14px;
+  font-family:var(--ff-mono);font-size:9.5px;font-weight:400;
+  letter-spacing:.11em;
+  color:rgba(232,240,255,.5);
+  opacity:0;transition:opacity .35s var(--ease),color .35s var(--ease);
+}
+.status.show{opacity:1}
+.status.info{color:rgba(34,211,238,.85)}
+.status.ok{color:var(--ok)}
+.status.bad{color:var(--bad)}
+.status__sub{
+  display:block;margin-top:5px;
+  font-family:var(--ff-ui);font-size:11px;font-weight:200;letter-spacing:0;
+  color:rgba(232,240,255,.42);
+}
+.spin{
+  flex:0 0 auto;width:12px;height:12px;border-radius:50%;
+  border:1.5px solid rgba(34,211,238,.22);border-top-color:var(--cyan);
+  animation:sp .7s linear infinite;
+}
+@keyframes sp{to{transform:rotate(360deg)}}
+.status:not(.busy) .spin{display:none}
+
+/* ---- resend row ---- */
+.resend{
+  margin-top:16px;text-align:center;
+  font-size:11px;font-weight:200;color:rgba(232,240,255,.38);
+}
+.resend button{
+  background:none;border:0;padding:0;margin-left:6px;
+  font-family:var(--ff-mono);font-size:9.5px;letter-spacing:.14em;
+  color:var(--cyan);cursor:pointer;transition:text-shadow .3s,opacity .3s;
+}
+.resend button:hover:not(:disabled){text-shadow:0 0 12px rgba(34,211,238,.8)}
+.resend button:disabled{color:rgba(232,240,255,.28);cursor:not-allowed}
+.resend button:focus-visible{outline:1px solid var(--cyan);outline-offset:3px;border-radius:2px}
+
+/* ============================================================
+   SUCCESS
+   ============================================================ */
+.success{text-align:center}
+.check-wrap{position:relative;width:78px;height:78px;margin:0 auto 20px}
+.check-ring{
+  position:absolute;inset:0;border-radius:50%;
+  border:1.5px solid rgba(52,229,176,.5);
+  box-shadow:0 0 30px rgba(52,229,176,.35),inset 0 0 24px rgba(52,229,176,.14);
+  animation:ringIn .7s var(--spring) forwards;
+}
+@keyframes ringIn{0%{transform:scale(.4);opacity:0}100%{transform:scale(1);opacity:1}}
+.check-ring--echo{
+  border-color:rgba(52,229,176,.3);
+  animation:echo 1.5s var(--ease) .35s infinite;
+}
+@keyframes echo{0%{transform:scale(1);opacity:.6}100%{transform:scale(1.5);opacity:0}}
+.check-svg{position:absolute;inset:0;width:100%;height:100%}
+.check-svg path{
+  fill:none;stroke:var(--ok);stroke-width:2.6;stroke-linecap:round;stroke-linejoin:round;
+  stroke-dasharray:40;stroke-dashoffset:40;
+  filter:drop-shadow(0 0 6px rgba(52,229,176,.9));
+  animation:draw .55s var(--ease) .34s forwards;
+}
+@keyframes draw{to{stroke-dashoffset:0}}
+body.is-success .glass{border-color:rgba(52,229,176,.28);
+  box-shadow:inset 0 1px 22px rgba(52,229,176,.1),inset 0 0 60px rgba(52,229,176,.1),0 0 70px rgba(52,229,176,.16)}
+body.is-success .rim{background:conic-gradient(from var(--ra,0deg),transparent 0deg,var(--ok) 50deg,rgba(34,211,238,.8) 110deg,transparent 180deg)}
+
+/* ============================================================
+   RESPONSIVE
+   ============================================================ */
+@media (max-width:520px){
+  .screen{padding:28px 20px}
+  .title{font-size:17px}
+  .otp-row{gap:6px}
+  /* keep cells comfortably tappable */
+  .otp-cell{aspect-ratio:auto;height:52px}
+  .otp-cell input{font-size:17px}
+  .orb--r{display:none}
+  .neb{filter:blur(54px)}
+  .tap-hint{bottom:-40px}
+}
+@media (max-width:360px){
+  .otp-row{gap:4px}
+  .otp-cell input{font-size:15px}
+}
+
+/* ============================================================
+   REDUCED MOTION
+   ============================================================ */
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{
+    animation-duration:.01ms!important;animation-iteration-count:1!important;
+    transition-duration:.18s!important;
+  }
+  .neb,.rim,.bloom,.orb,.shell:not(.is-panel){animation:none!important}
+  .shell:not(.is-panel):hover{transform:none}
+}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+</style>
+</head>
+<body>
+
+<div class="sky" aria-hidden="true">
+  <div class="sky__void"></div>
+  <div class="neb neb--v"></div><div class="neb neb--c"></div><div class="neb neb--m"></div>
+  <div class="galaxy galaxy--1"></div><div class="galaxy galaxy--2"></div>
+  <div class="fog"></div>
+</div>
+<canvas id="field" aria-hidden="true"></canvas>
+
+<div class="flash" aria-hidden="true"></div>
+<div class="shock shock--1" aria-hidden="true"></div>
+<div class="shock shock--2" aria-hidden="true"></div>
+
+<main class="stage">
+  <div class="shell" id="shell" role="button" tabindex="0" aria-label="Open secure verification">
+
+    <span class="bloom" aria-hidden="true"></span>
+    <span class="glass" aria-hidden="true"></span>
+    <span class="rim" aria-hidden="true"></span>
+    <span class="vring" aria-hidden="true"></span>
+    <span class="ripple-l" id="ripple" aria-hidden="true"></span>
+    <span class="orb" aria-hidden="true"><i></i><i class="b"></i></span>
+    <span class="orb orb--r" aria-hidden="true"><i class="c"></i></span>
+
+    <!-- ===== INITIAL BUBBLE ===== -->
+    <span class="bubble" id="bubble">
+      <svg class="bubble__lock" viewBox="0 0 24 24" aria-hidden="true">
+        <rect x="5" y="11" width="14" height="9" rx="2.2"/>
+        <path d="M8.5 11V8.2a3.5 3.5 0 017 0V11"/>
+        <circle cx="12" cy="15.4" r="1.1" fill="currentColor" stroke="none"/>
+      </svg>
+      <span class="bubble__word">OTP</span>
+      <span class="bubble__sub">Verify Identity</span>
+    </span>
+    <span class="tap-hint" id="tapHint">CLICK TO VERIFY</span>
+
+    <!-- ===== SCREENS ===== -->
+    <div class="screens">
+
+      <!-- SEND -->
+      <section class="screen" id="scr-send" aria-hidden="true">
+        <p class="eyebrow">Secure channel</p>
+        <h1 class="title">Verify Your Identity</h1>
+        <p class="desc">Enter your email or mobile number to receive a secure OTP.</p>
+
+        <label class="label" for="contact">Email / Mobile Number</label>
+        <div class="inbox" id="contactBox">
+          <input class="input" id="contact" type="text" inputmode="email"
+                 autocomplete="email" placeholder="you@example.com or +91 98765 43210">
+        </div>
+
+        <button class="cta" id="btnSend" type="button" data-rip>SEND OTP</button>
+        <div class="status" id="sendStatus"><span class="spin"></span><span id="sendMsg"></span></div>
+      </section>
+
+      <!-- OTP -->
+      <section class="screen" id="scr-otp" aria-hidden="true">
+        <p class="eyebrow">Step 2 of 2</p>
+        <h1 class="title">Enter Verification Code</h1>
+        <p class="desc" id="otpDesc">Enter the 6-digit code sent to your registered contact.</p>
+
+        <div class="otp-row" id="otpRow" role="group" aria-label="6-digit verification code"></div>
+
+        <div class="status" id="otpStatus"><span class="spin"></span><span id="otpMsg"></span></div>
+
+        <button class="cta" id="btnVerify" type="button" data-rip disabled>VERIFY OTP</button>
+
+        <p class="resend">
+          <span id="resendLead">Didn't receive the code?</span>
+          <button id="btnResend" type="button" disabled>Resend available in 30s</button>
+        </p>
+      </section>
+
+      <!-- SUCCESS -->
+      <section class="screen" id="scr-success" aria-hidden="true">
+        <div class="success">
+          <div class="check-wrap">
+            <span class="check-ring"></span>
+            <span class="check-ring check-ring--echo"></span>
+            <svg class="check-svg" viewBox="0 0 78 78" aria-hidden="true">
+              <path d="M25 40.5l9.5 9.5L54 30"/>
+            </svg>
+          </div>
+          <h1 class="title">Verification Successful</h1>
+          <p class="desc">Your identity has been successfully verified.</p>
+          <button class="cta cta--ok" id="btnContinue" type="button" data-rip>CONTINUE</button>
+        </div>
+      </section>
+
+    </div>
+  </div>
+</main>
+
+<div class="sr" role="status" aria-live="polite" id="live"></div>
+
+<script>
+(() => {
+'use strict';
+
+/* ============================================================
+   MOCK API — replace these three with real calls.
+   Demo rule: 123456 verifies, anything else is rejected.
+   ============================================================ */
+const DEMO_CODE = '123456';
+const OTP_TTL_MS = 60000;        // code lifetime
+const RESEND_SEC = 30;
+const MAX_ATTEMPTS = 3;
+
+console.log('%c[demo] verification code is ' + DEMO_CODE,
+            'color:#22d3ee;font-family:monospace');
+
+/** POST /auth/otp/send  → { ok, channel } */
+function sendOtp(contact){
+  return new Promise(res => setTimeout(() => res({ ok:true, contact }), 1200));
+}
+/** POST /auth/otp/verify → { ok, reason } */
+function verifyOtp(code){
+  return new Promise(res => setTimeout(() => {
+    res(code === DEMO_CODE ? { ok:true } : { ok:false, reason:'INVALID' });
+  }, 1400));
+}
+/** POST /auth/otp/resend → { ok } */
+function resendOtp(contact){
+  return new Promise(res => setTimeout(() => res({ ok:true }), 1000));
+}
+
+/* ============================================================
+   STATE MACHINE
+   ============================================================ */
+const ST = {
+  INITIAL:'OTP_INITIAL', SEND:'OTP_SEND', SENDING:'OTP_SENDING', SENT:'OTP_SENT',
+  VALIDATE:'OTP_VALIDATE', VERIFYING:'OTP_VERIFYING', SUCCESS:'OTP_SUCCESS',
+  ERROR:'OTP_ERROR', EXPIRED:'OTP_EXPIRED', BLOCKED:'OTP_BLOCKED'
+};
+let state = ST.INITIAL;
+let contactValue = '';
+let attempts = 0;
+let ttlTimer = null, resendTimer = null;
+
+const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+const $ = id => document.getElementById(id);
+const shell = $('shell'), live = $('live');
+const screens = { send:$('scr-send'), otp:$('scr-otp'), success:$('scr-success') };
+
+/* which screen each state renders on */
+const screenFor = s => ({
+  [ST.SEND]:'send', [ST.SENDING]:'send',
+  [ST.SENT]:'otp', [ST.VALIDATE]:'otp', [ST.VERIFYING]:'otp',
+  [ST.ERROR]:'otp', [ST.EXPIRED]:'otp', [ST.BLOCKED]:'otp',
+  [ST.SUCCESS]:'success'
+}[s]);
+
+/* ---- shell sizing: measure the live screen so the morph is exact ---- */
+const PANEL_W = () => Math.min(innerWidth - 40, 430);
+
+function fitShell(name){
+  const el = screens[name];
+  if (!el) return;
+  const prev = el.style.cssText;
+  el.style.cssText = prev + ';opacity:0;position:absolute;pointer-events:none;display:block';
+  const h = el.scrollHeight;
+  el.style.cssText = prev;
+  shell.style.setProperty('--sw', PANEL_W()+'px');
+  shell.style.setProperty('--sh', h+'px');
+  shell.style.setProperty('--sr', '28px');
+}
+
+function showScreen(name){
+  for (const [k,el] of Object.entries(screens)){
+    const on = k===name;
+    el.classList.toggle('is-live', on);
+    el.setAttribute('aria-hidden', String(!on));
+  }
+  fitShell(name);
+}
+
+function say(msg){ live.textContent = msg; }
+
+/* ============================================================
+   TRANSITION TO STATE
+   ============================================================ */
+function go(next){
+  state = next;
+  document.body.classList.toggle('is-verifying', next===ST.VERIFYING);
+  document.body.classList.toggle('is-success', next===ST.SUCCESS);
+
+  const scr = screenFor(next);
+  if (scr) showScreen(scr);
+
+  switch(next){
+    case ST.SEND:
+      status($('sendStatus'), $('sendMsg'), '', '');
+      $('btnSend').disabled = false;
+      setTimeout(() => $('contact').focus({preventScroll:true}), 380);
+      break;
+
+    case ST.SENDING:
+      $('btnSend').disabled = true;
+      status($('sendStatus'), $('sendMsg'), 'Sending verification code…', 'info', true);
+      say('Sending verification code');
+      break;
+
+    case ST.SENT:
+      status($('otpStatus'), $('otpMsg'),
+        'Verification code sent'
+        + '<span class="status__sub">We sent a 6-digit code to ' + mask(contactValue) + '</span>',
+        'ok');
+      $('otpDesc').textContent = 'Enter the 6-digit code sent to ' + mask(contactValue) + '.';
+      fitShell('otp');
+      say('Verification code sent');
+      setTimeout(() => go(ST.VALIDATE), 700);
+      break;
+
+    case ST.VALIDATE:
+      row.classList.remove('bad','good','scan');
+      cells.forEach(c => { c.input.disabled = false; });
+      cells[0].input.focus({preventScroll:true});
+      startTtl();
+      startResend();
+      break;
+
+    case ST.VERIFYING:
+      row.classList.add('scan');
+      row.classList.remove('bad','good');
+      cells.forEach(c => c.input.disabled = true);
+      $('btnVerify').disabled = true;
+      status($('otpStatus'), $('otpMsg'), 'Verifying code…', 'info', true);
+      say('Verifying code');
+      break;
+
+    case ST.SUCCESS:
+      stopTtl(); stopResend();
+      burst();
+      say('Verification successful');
+      setTimeout(() => $('btnContinue').focus({preventScroll:true}), 700);
+      break;
+
+    case ST.ERROR:
+      row.classList.remove('scan');
+      row.classList.add('bad');
+      shake();
+      status($('otpStatus'), $('otpMsg'),
+        'Invalid verification code'
+        + '<span class="status__sub">Please enter the correct verification code.</span>',
+        'bad');
+      cells.forEach(c => { c.input.disabled = false; c.input.value=''; c.el.classList.remove('filled'); });
+      $('btnVerify').disabled = true;
+      cells[0].input.focus({preventScroll:true});
+      fitShell('otp');
+      say('Invalid verification code');
+      break;
+
+    case ST.EXPIRED:
+      stopTtl();
+      row.classList.remove('scan','good');
+      cells.forEach(c => { c.input.disabled = true; });
+      status($('otpStatus'), $('otpMsg'),
+        'Code expired'
+        + '<span class="status__sub">Your verification code has expired.</span>',
+        'bad');
+      $('btnVerify').disabled = true;
+      /* expiry always makes resend available - otherwise the user is stuck */
+      stopResend();
+      $('btnResend').disabled = false;
+      $('btnResend').textContent = 'Resend OTP';
+      fitShell('otp');
+      say('Code expired');
+      break;
+
+    case ST.BLOCKED:
+      stopTtl(); stopResend();
+      row.classList.remove('scan');
+      cells.forEach(c => { c.input.disabled = true; });
+      status($('otpStatus'), $('otpMsg'),
+        'Too many attempts'
+        + '<span class="status__sub">Please try again later.</span>',
+        'bad');
+      $('btnVerify').disabled = true;
+      $('btnResend').disabled = true;
+      $('btnResend').textContent = 'Locked';
+      fitShell('otp');
+      say('Too many attempts. Please try again later.');
+      break;
+  }
+}
+
+function status(box, msgEl, html, tone, busy){
+  msgEl.innerHTML = html;
+  box.className = 'status' + (html ? ' show' : '') + (tone ? ' '+tone : '') + (busy ? ' busy' : '');
+}
+
+/* never render the full contact back to the user */
+function mask(v){
+  v = (v||'').trim();
+  if (v.includes('@')){
+    const [u,d] = v.split('@');
+    return (u.slice(0,2) || '••') + '•••@' + d;
+  }
+  const digits = v.replace(/\D/g,'');
+  const last = digits.slice(-4) || '••••';
+  const cc = digits.length > 10 ? '+'+digits.slice(0, digits.length-10)+' ' : '+91 ';
+  return cc + '••••••' + last;
+}
+
+/* ============================================================
+   UNLOCK
+   ============================================================ */
+let opened = false;
+
+shell.addEventListener('pointermove', e => {
+  if (opened) return;
+  const r = shell.getBoundingClientRect();
+  $('ripple').style.setProperty('--mx', ((e.clientX-r.left)/r.width*100)+'%');
+  $('ripple').style.setProperty('--my', ((e.clientY-r.top)/r.height*100)+'%');
+});
+
+function unlock(){
+  if (opened) return;
+  opened = true;
+  shell.removeAttribute('role');
+  shell.removeAttribute('tabindex');
+  shell.setAttribute('aria-label','Secure verification');
+
+  if (reduced){
+    shell.classList.add('is-panel');
+    document.body.classList.add('is-open');
+    go(ST.SEND);
+    return;
+  }
+
+  document.body.classList.add('is-unlocking');
+  pullIn(46);                       /* galaxy particles rush the centre */
+
+  setTimeout(() => {
+    shell.classList.add('is-panel');
+    document.body.classList.add('is-open');
+    go(ST.SEND);
+  }, 520);
+
+  setTimeout(() => document.body.classList.remove('is-unlocking'), 1400);
+}
+
+shell.addEventListener('click', e => {
+  if (opened || e.target.closest('.screens')) return;
+  unlock();
+});
+shell.addEventListener('keydown', e => {
+  if (opened) return;
+  if (e.key==='Enter' || e.key===' '){ e.preventDefault(); unlock(); }
+});
+
+/* ============================================================
+   OTP INPUTS — 6 cells
+   ============================================================ */
+const row = $('otpRow');
+const cells = [];
+const LEN = 6;
+
+for (let i=0;i<LEN;i++){
+  const el = document.createElement('div');
+  el.className = 'otp-cell';
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.inputMode = 'numeric';
+  input.autocomplete = i===0 ? 'one-time-code' : 'off';
+  input.maxLength = 1;
+  input.setAttribute('aria-label', `Digit ${i+1} of ${LEN}`);
+  el.appendChild(input);
+  row.appendChild(el);
+  cells.push({ el, input });
+}
+
+const code = () => cells.map(c => c.input.value).join('');
+const complete = () => code().length === LEN && /^\d{6}$/.test(code());
+
+function refresh(){
+  cells.forEach(c => c.el.classList.toggle('filled', c.input.value !== ''));
+  $('btnVerify').disabled = !complete() || state===ST.BLOCKED || state===ST.EXPIRED;
+}
+
+cells.forEach((c, i) => {
+  c.input.addEventListener('focus', () => c.el.classList.add('on'));
+  c.input.addEventListener('blur',  () => c.el.classList.remove('on'));
+
+  /* numeric only, auto-advance */
+  c.input.addEventListener('input', () => {
+    const clean = c.input.value.replace(/\D/g,'');
+    c.input.value = clean.slice(-1);
+    refresh();
+    if (c.input.value && i < LEN-1) cells[i+1].input.focus();
+    /* auto-submit once the code is complete */
+    if (complete() && state===ST.VALIDATE) submit();
+  });
+
+  c.input.addEventListener('keydown', e => {
+    if (e.key === 'Backspace'){
+      if (!c.input.value && i > 0){
+        e.preventDefault();
+        cells[i-1].input.value = '';
+        cells[i-1].el.classList.remove('filled');
+        cells[i-1].input.focus();
+        refresh();
+      }
+    } else if (e.key === 'ArrowLeft' && i > 0){
+      e.preventDefault(); cells[i-1].input.focus();
+    } else if (e.key === 'ArrowRight' && i < LEN-1){
+      e.preventDefault(); cells[i+1].input.focus();
+    } else if (e.key === 'Enter' && complete()){
+      e.preventDefault(); submit();
+    }
+  });
+
+  /* paste the whole code into any cell */
+  c.input.addEventListener('paste', e => {
+    e.preventDefault();
+    const digits = (e.clipboardData.getData('text')||'').replace(/\D/g,'').slice(0, LEN);
+    if (!digits) return;
+    digits.split('').forEach((d, k) => { if (cells[k]) cells[k].input.value = d; });
+    refresh();
+    const next = Math.min(digits.length, LEN-1);
+    cells[next].input.focus();
+    if (complete() && state===ST.VALIDATE) submit();
+  });
+});
+
+/* ============================================================
+   TIMERS
+   ============================================================ */
+function startTtl(){
+  stopTtl();
+  ttlTimer = setTimeout(() => {
+    if (state===ST.VALIDATE || state===ST.ERROR) go(ST.EXPIRED);
+  }, OTP_TTL_MS);
+}
+function stopTtl(){ clearTimeout(ttlTimer); ttlTimer = null; }
+
+function startResend(){
+  stopResend();
+  let left = RESEND_SEC;
+  const btn = $('btnResend');
+  btn.disabled = true;
+  btn.textContent = `Resend available in ${left}s`;
+  resendTimer = setInterval(() => {
+    left--;
+    if (left <= 0){
+      stopResend();
+      btn.disabled = false;
+      btn.textContent = 'Resend OTP';
+    } else {
+      btn.textContent = `Resend available in ${left}s`;
+    }
+  }, 1000);
+}
+function stopResend(){ clearInterval(resendTimer); resendTimer = null; }
+
+/* ============================================================
+   ACTIONS
+   ============================================================ */
+$('btnSend').addEventListener('click', async () => {
+  const v = $('contact').value.trim();
+  if (!v){
+    status($('sendStatus'), $('sendMsg'), 'Enter an email or mobile number to continue.', 'bad');
+    $('contact').focus();
+    fitShell('send');
+    return;
+  }
+  contactValue = v;
+  go(ST.SENDING);
+  const res = await sendOtp(v);
+  if (res.ok){ attempts = 0; go(ST.SENT); }
+  else {
+    status($('sendStatus'), $('sendMsg'), 'Could not send the code. Try again.', 'bad');
+    $('btnSend').disabled = false;
+  }
+});
+
+$('contact').addEventListener('keydown', e => { if (e.key==='Enter') $('btnSend').click(); });
+
+async function submit(){
+  if (state===ST.VERIFYING || state===ST.BLOCKED || state===ST.EXPIRED) return;
+  go(ST.VERIFYING);
+
+  const res = await verifyOtp(code());
+
+  if (res.ok){
+    row.classList.remove('scan');
+    row.classList.add('good');
+    status($('otpStatus'), $('otpMsg'), 'Code verified', 'ok');
+    setTimeout(() => go(ST.SUCCESS), 520);
+    return;
+  }
+
+  attempts++;
+  /* cap validation attempts - never allow unlimited guessing */
+  if (attempts >= MAX_ATTEMPTS) go(ST.BLOCKED);
+  else go(ST.ERROR);
+}
+
+$('btnVerify').addEventListener('click', submit);
+
+$('btnResend').addEventListener('click', async () => {
+  const btn = $('btnResend');
+  if (btn.disabled) return;
+  btn.disabled = true;
+  status($('otpStatus'), $('otpMsg'), 'Sending a new code…', 'info', true);
+
+  const res = await resendOtp(contactValue);
+  if (!res.ok){
+    status($('otpStatus'), $('otpMsg'), 'Could not resend. Try again.', 'bad');
+    btn.disabled = false;
+    return;
+  }
+
+  cells.forEach(c => { c.input.value=''; c.input.disabled=false; c.el.classList.remove('filled'); });
+  row.classList.remove('bad','good','scan');
+  refresh();
+  status($('otpStatus'), $('otpMsg'), 'Code sent again.', 'ok');
+  state = ST.VALIDATE;
+  cells[0].input.focus({preventScroll:true});
+  startTtl();
+  startResend();
+  fitShell('otp');
+  say('Code sent again');
+});
+
+$('btnContinue').addEventListener('click', () => {
+  /* hand off to your app here (route, session, redirect...) */
+  say('Continuing');
+  console.log('[demo] CONTINUE — wire this to your post-auth route');
+});
+
+/* ripples */
+document.querySelectorAll('[data-rip]').forEach(btn => {
+  btn.addEventListener('click', e => {
+    if (reduced || btn.disabled) return;
+    const r = btn.getBoundingClientRect();
+    const s = document.createElement('span');
+    s.className = 'rip';
+    s.style.left = (e.clientX-r.left)+'px';
+    s.style.top  = (e.clientY-r.top)+'px';
+    btn.appendChild(s);
+    setTimeout(() => s.remove(), 620);
+  });
+});
+
+function shake(){
+  if (reduced) return;
+  shell.classList.remove('shake');
+  void shell.offsetWidth;
+  shell.classList.add('shake');
+  setTimeout(() => shell.classList.remove('shake'), 460);
+}
+
+addEventListener('resize', () => {
+  if (!opened) return;
+  const scr = screenFor(state);
+  if (scr) fitShell(scr);
+}, {passive:true});
+
+/* ============================================================
+   CANVAS — stars, dust, infall, success burst
+   ============================================================ */
+const cv = $('field'), ctx = cv.getContext('2d', {alpha:true});
+let W=0,H=0,cx=0,cy=0, stars=[], dust=[], pull=[], spark=[], raf=null, t=0, mx=0, my=0;
+
+function density(){
+  if (innerWidth<640) return {s:120,d:22};
+  if (innerWidth<1024) return {s:230,d:40};
+  return {s:Math.min(480, Math.round(innerWidth*innerHeight/3400)), d:64};
+}
+function build(){
+  const d = density();
+  stars = Array.from({length:d.s}, () => {
+    const layer = Math.random()<.6 ? 0 : (Math.random()<.6 ? 1 : 2);
+    return { x:Math.random()*W, y:Math.random()*H,
+      r:(layer===2?1.4:layer===1?.95:.65)*(.6+Math.random()*.7),
+      a:.22+Math.random()*.6, tw:Math.random()*6.28, ts:.006+Math.random()*.015, layer };
+  });
+  dust = Array.from({length:d.d}, () => ({
+    x:Math.random()*W, y:Math.random()*H, r:.5+Math.random()*1.2,
+    vx:(Math.random()-.5)*.08, vy:(Math.random()-.5)*.08,
+    a:.1+Math.random()*.28,
+    hue:Math.random()<.5?'34,211,238':'167,139,250' }));
+  pullIn(innerWidth<640?14:28);
+}
+function pullIn(n){
+  const R = Math.max(shell.offsetWidth, 168)/2;
+  for (let i=0;i<n;i++){
+    const ang = Math.random()*6.28, max = R*3;
+    pull.push({ ang, rad:R*(1.3+Math.random()*1.7),
+      spin:(.0016+Math.random()*.004)*(Math.random()<.5?1:-1),
+      pull:.05+Math.random()*.15, r:.5+Math.random()*1.1,
+      a:.22+Math.random()*.5,
+      hue:Math.random()<.45?'34,211,238':(Math.random()<.5?'232,240,255':'192,38,211'),
+      max });
+  }
+}
+/* success particle explosion */
+function burst(){
+  if (reduced) return;
+  for (let i=0;i<70;i++){
+    const ang = Math.random()*6.28, sp = 1.4+Math.random()*4.4;
+    spark.push({ x:cx, y:cy, vx:Math.cos(ang)*sp, vy:Math.sin(ang)*sp,
+      r:.7+Math.random()*1.7, life:1 });
+  }
+}
+function resize(){
+  const dpr = Math.min(devicePixelRatio||1, 2);
+  W=innerWidth; H=innerHeight; cx=W/2; cy=H/2;
+  cv.width=W*dpr; cv.height=H*dpr;
+  cv.style.width=W+'px'; cv.style.height=H+'px';
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  pull.length=0; build();
+}
+function draw(){
+  t++;
+  ctx.clearRect(0,0,W,H);
+  const px=(mx-cx)*.005, py=(my-cy)*.005;
+
+  for (const s of stars){
+    s.tw+=s.ts;
+    const o=s.layer+1, a=s.a*(.6+.4*Math.sin(s.tw));
+    ctx.globalAlpha=a; ctx.fillStyle=s.layer===2?'rgba(205,228,255,1)':'#fff';
+    ctx.beginPath(); ctx.arc(s.x+px*o, s.y+py*o, s.r, 0, 6.283); ctx.fill();
+    if (s.layer===2 && s.r>1){
+      ctx.globalAlpha=a*.2;
+      ctx.beginPath(); ctx.arc(s.x+px*o, s.y+py*o, s.r*3.2, 0, 6.283); ctx.fill();
+    }
+  }
+  for (const d of dust){
+    d.x+=d.vx; d.y+=d.vy;
+    if(d.x<0)d.x=W; if(d.x>W)d.x=0; if(d.y<0)d.y=H; if(d.y>H)d.y=0;
+    ctx.globalAlpha=d.a; ctx.fillStyle=`rgba(${d.hue},1)`;
+    ctx.beginPath(); ctx.arc(d.x,d.y,d.r,0,6.283); ctx.fill();
+  }
+  const fast = document.body.classList.contains('is-unlocking') ? 3.4 : 1;
+  for (const p of pull){
+    p.ang += p.spin*fast; p.rad -= p.pull*fast;
+    if (p.rad < 40){ p.rad = p.max*(.72+Math.random()*.28); p.ang = Math.random()*6.28; }
+    const x=cx+Math.cos(p.ang)*p.rad, y=cy+Math.sin(p.ang)*p.rad;
+    ctx.globalAlpha=p.a*(1-Math.min(1,p.rad/(p.max*.9))*.3);
+    ctx.fillStyle=`rgba(${p.hue},1)`;
+    ctx.beginPath(); ctx.arc(x,y,p.r,0,6.283); ctx.fill();
+  }
+  for (const s of spark){
+    s.x+=s.vx; s.y+=s.vy; s.vx*=.975; s.vy*=.975; s.life-=.014;
+    ctx.globalAlpha=Math.max(0,s.life);
+    ctx.fillStyle='rgba(52,229,176,1)';
+    ctx.beginPath(); ctx.arc(s.x,s.y,s.r,0,6.283); ctx.fill();
+  }
+  spark = spark.filter(s => s.life > 0);
+
+  ctx.globalAlpha=1;
+  raf = requestAnimationFrame(draw);
+}
+function drawStatic(){
+  ctx.clearRect(0,0,W,H);
+  for (const s of stars){ ctx.globalAlpha=s.a; ctx.fillStyle='#fff';
+    ctx.beginPath(); ctx.arc(s.x,s.y,s.r,0,6.283); ctx.fill(); }
+  ctx.globalAlpha=1;
+}
+addEventListener('pointermove', e => { mx=e.clientX; my=e.clientY; }, {passive:true});
+addEventListener('resize', () => { resize(); if(reduced) drawStatic(); }, {passive:true});
+document.addEventListener('visibilitychange', () => {
+  if (reduced) return;
+  if (document.hidden){ cancelAnimationFrame(raf); raf=null; }
+  else if (!raf) raf = requestAnimationFrame(draw);
+});
+resize();
+if (reduced) drawStatic(); else raf = requestAnimationFrame(draw);
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,1059 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Galaxy Portal — Authentication</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@200;300;400;600&family=IBM+Plex+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+/* ============================================================
+   TOKENS
+   void/abyss/indigo = deep space depth stack
+   cyan → blue → violet → magenta = the only accent ramp
+   ============================================================ */
+:root{
+  --void:#020617;
+  --abyss:#060b1f;
+  --indigo:#0b1437;
+  --cyan:#22d3ee;
+  --blue:#3b82f6;
+  --violet:#7c3aed;
+  --magenta:#c026d3;
+  --star:#e8f0ff;
+
+  --glass:rgba(255,255,255,.045);
+  --glass-brd:rgba(180,215,255,.14);
+
+  --ff-ui:'Sora',system-ui,-apple-system,sans-serif;
+  --ff-mono:'IBM Plex Mono',ui-monospace,monospace;
+
+  --portal:clamp(200px,42vmin,272px);
+  --auth:clamp(320px,86vmin,540px);
+
+  --ease-cine:cubic-bezier(.16,1,.3,1);
+}
+
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+
+html,body{height:100%}
+body{
+  background:var(--void);
+  color:var(--star);
+  font-family:var(--ff-ui);
+  overflow:hidden;                 /* no horizontal scroll, ever */
+  -webkit-font-smoothing:antialiased;
+}
+
+/* ============================================================
+   LAYER 1–5 · GALAXY BACKGROUND
+   Overlapping radial gradients at different positions/speeds,
+   deliberately NOT one flat linear gradient.
+   ============================================================ */
+.sky{position:fixed;inset:0;overflow:hidden;z-index:0}
+
+/* L1 deep space — slight vignette so the centre reads as deepest */
+.sky__void{
+  position:absolute;inset:0;
+  background:
+    radial-gradient(120% 90% at 50% 55%, #0a1128 0%, #050a1c 45%, var(--void) 100%),
+    var(--void);
+}
+
+/* L2 nebula — four blurred clouds, each drifting on its own clock */
+.neb{position:absolute;border-radius:50%;filter:blur(70px);opacity:.5;will-change:transform}
+.neb--violet{
+  width:70vmax;height:70vmax;left:-18vmax;top:-22vmax;
+  background:radial-gradient(circle at 50% 50%, rgba(124,58,237,.55), rgba(124,58,237,0) 66%);
+  animation:drift-a 68s var(--ease-cine) infinite alternate;
+}
+.neb--cyan{
+  width:56vmax;height:56vmax;right:-14vmax;top:4vmax;
+  background:radial-gradient(circle at 50% 50%, rgba(34,211,238,.34), rgba(34,211,238,0) 68%);
+  animation:drift-b 84s var(--ease-cine) infinite alternate;
+}
+.neb--magenta{
+  width:62vmax;height:62vmax;left:8vmax;bottom:-26vmax;
+  background:radial-gradient(circle at 50% 50%, rgba(192,38,211,.32), rgba(192,38,211,0) 66%);
+  animation:drift-c 76s var(--ease-cine) infinite alternate;
+}
+.neb--indigo{
+  width:48vmax;height:48vmax;right:2vmax;bottom:-16vmax;
+  background:radial-gradient(circle at 50% 50%, rgba(59,130,246,.3), rgba(59,130,246,0) 70%);
+  animation:drift-b 92s var(--ease-cine) infinite alternate-reverse;
+}
+@keyframes drift-a{to{transform:translate3d(7vmax,5vmax,0) scale(1.16)}}
+@keyframes drift-b{to{transform:translate3d(-6vmax,7vmax,0) scale(1.1)}}
+@keyframes drift-c{to{transform:translate3d(5vmax,-6vmax,0) scale(1.14)}}
+
+/* L5 distant galaxies — barely-there elliptical smudges */
+.galaxy{
+  position:absolute;border-radius:50%;
+  filter:blur(16px);opacity:.16;
+  background:radial-gradient(ellipse at 50% 50%, rgba(232,240,255,.85), rgba(124,58,237,.35) 40%, transparent 72%);
+}
+.galaxy--1{width:220px;height:74px;left:12%;top:22%;transform:rotate(-24deg)}
+.galaxy--2{width:150px;height:48px;right:16%;bottom:26%;transform:rotate(16deg)}
+.galaxy--3{width:96px;height:96px;right:30%;top:14%;opacity:.1}
+
+/* faint cosmic light rays */
+.rays{
+  position:absolute;inset:0;opacity:.14;mix-blend-mode:screen;
+  background:
+    conic-gradient(from 200deg at 50% 48%,
+      transparent 0deg, rgba(34,211,238,.16) 18deg, transparent 40deg,
+      transparent 150deg, rgba(124,58,237,.14) 172deg, transparent 196deg);
+  animation:rays-turn 120s linear infinite;
+}
+@keyframes rays-turn{to{transform:rotate(360deg)}}
+
+/* space fog sitting above the nebula, below the stars */
+.fog{
+  position:absolute;inset:0;
+  background:radial-gradient(100% 70% at 50% 100%, rgba(11,20,55,.72), transparent 62%);
+  pointer-events:none;
+}
+
+/* L3/L4 stars + dust + portal particles all live on one canvas */
+#field{position:fixed;inset:0;z-index:1;pointer-events:none}
+
+/* brightened galaxy after the wormhole */
+body.is-auth .neb{opacity:.72}
+body.is-auth .rays{opacity:.22}
+body.is-auth .galaxy{opacity:.24}
+.neb,.rays,.galaxy{transition:opacity 1.6s var(--ease-cine)}
+
+/* ============================================================
+   STAGE
+   ============================================================ */
+.stage{
+  position:relative;z-index:2;
+  height:100%;
+  display:grid;place-items:center;
+  padding:24px;
+}
+
+/* ============================================================
+   COSMIC PORTAL  ·  the signature element
+   Same DOM node becomes the auth portal — the interface is
+   revealed FROM the portal, never dropped on top of it.
+   ============================================================ */
+.portal{
+  position:relative;
+  width:var(--portal);height:var(--portal);
+  border-radius:50%;
+  cursor:pointer;
+  display:grid;place-items:center;
+  transition:
+    width 1.15s var(--ease-cine),
+    height 1.15s var(--ease-cine),
+    transform .6s var(--ease-cine);
+  -webkit-tap-highlight-color:transparent;
+}
+.portal:focus-visible{outline:none}
+.portal:focus-visible .horizon{box-shadow:0 0 0 2px var(--cyan),0 0 60px rgba(34,211,238,.6)}
+
+/* orbital rings live OUTSIDE the shell so they survive the expansion */
+.ring{
+  position:absolute;border-radius:50%;
+  border:1px solid rgba(34,211,238,.18);
+  pointer-events:none;
+  will-change:transform;
+}
+.ring--1{inset:-13%;border-style:dashed;animation:spin 46s linear infinite}
+.ring--2{inset:-25%;border-color:rgba(124,58,237,.16);animation:spin 74s linear infinite reverse}
+.ring--3{
+  inset:-38%;border-color:rgba(192,38,211,.09);
+  border-top-color:rgba(34,211,238,.3);
+  animation:spin 108s linear infinite;
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* glass outer sphere */
+.sphere{
+  position:absolute;inset:0;border-radius:50%;
+  background:
+    radial-gradient(circle at 32% 26%, rgba(255,255,255,.1), transparent 46%),
+    radial-gradient(circle at 50% 50%, rgba(11,20,55,.5), rgba(2,6,23,.86) 72%);
+  border:1px solid var(--glass-brd);
+  backdrop-filter:blur(3px);
+  -webkit-backdrop-filter:blur(3px);
+  box-shadow:
+    inset 0 1px 22px rgba(180,215,255,.09),
+    inset 0 0 60px rgba(124,58,237,.16);
+}
+
+/* event horizon — the bright accretion edge */
+.horizon{
+  position:absolute;inset:9%;border-radius:50%;
+  background:conic-gradient(from 0deg,
+    rgba(34,211,238,0) 0deg,
+    rgba(34,211,238,.85) 60deg,
+    rgba(59,130,246,.6) 130deg,
+    rgba(124,58,237,.8) 210deg,
+    rgba(192,38,211,.55) 290deg,
+    rgba(34,211,238,0) 360deg);
+  filter:blur(7px);
+  animation:spin 14s linear infinite;
+  transition:filter .5s var(--ease-cine),opacity .5s var(--ease-cine),box-shadow .5s;
+}
+.horizon::after{
+  content:'';position:absolute;inset:5px;border-radius:50%;
+  background:radial-gradient(circle,rgba(2,6,23,.94) 56%,transparent 78%);
+}
+
+/* counter-rotating inner ring */
+.horizon-in{
+  position:absolute;inset:22%;border-radius:50%;
+  border:1px solid rgba(34,211,238,.34);
+  border-bottom-color:rgba(192,38,211,.42);
+  animation:spin 22s linear infinite reverse;
+}
+
+/* the dark core — a genuine near-black centre */
+.core{
+  position:absolute;inset:30%;border-radius:50%;
+  background:radial-gradient(circle at 50% 50%, #000 40%, rgba(2,6,23,.9) 74%, transparent 100%);
+  box-shadow:0 0 34px 8px rgba(0,0,0,.9), 0 0 90px rgba(34,211,238,.2);
+}
+
+/* volumetric bloom */
+.bloom{
+  position:absolute;inset:-30%;border-radius:50%;pointer-events:none;
+  background:radial-gradient(circle at 50% 50%,
+    rgba(34,211,238,.2) 0%, rgba(124,58,237,.13) 34%, transparent 66%);
+  filter:blur(22px);
+  animation:pulse 7s ease-in-out infinite;
+  transition:opacity .5s var(--ease-cine);
+}
+@keyframes pulse{0%,100%{opacity:.62;transform:scale(1)}50%{opacity:1;transform:scale(1.07)}}
+
+/* gravitational lens ripple, drawn on hover */
+.lens{
+  position:absolute;inset:-4%;border-radius:50%;pointer-events:none;
+  opacity:0;transition:opacity .45s var(--ease-cine);
+  background:radial-gradient(circle at var(--mx,50%) var(--my,50%),
+    rgba(255,255,255,.13) 0%, transparent 28%);
+  backdrop-filter:blur(1.5px);
+  -webkit-backdrop-filter:blur(1.5px);
+}
+.portal:hover .lens{opacity:1}
+
+/* ---- the subtle hint (NOT a button) ------------------------ */
+.hint{
+  position:relative;z-index:3;
+  text-align:center;
+  opacity:.34;
+  transition:opacity .45s var(--ease-cine),transform .45s var(--ease-cine);
+  pointer-events:none;
+}
+.hint__word{
+  display:block;
+  font-family:var(--ff-mono);
+  font-size:10px;font-weight:400;
+  letter-spacing:.62em;text-indent:.62em;
+  color:rgba(232,240,255,.9);
+}
+/* observatory-style readout — the star-catalog vernacular */
+.hint__coord{
+  display:block;margin-top:7px;
+  font-family:var(--ff-mono);
+  font-size:8px;font-weight:300;
+  letter-spacing:.2em;
+  color:rgba(34,211,238,.62);
+  opacity:0;transform:translateY(3px);
+  transition:opacity .5s var(--ease-cine) .06s,transform .5s var(--ease-cine) .06s;
+}
+.portal:hover .hint{opacity:1;transform:translateY(-1px)}
+.portal:hover .hint__coord{opacity:1;transform:translateY(0)}
+.portal:hover{transform:scale(1.045)}
+.portal:hover .horizon{filter:blur(5px);box-shadow:0 0 70px rgba(34,211,238,.42)}
+.portal:hover .bloom{opacity:1}
+
+/* orbiting star markers */
+.orbit{position:absolute;inset:-13%;pointer-events:none;animation:spin 34s linear infinite}
+.orbit--slow{inset:-25%;animation-duration:58s;animation-direction:reverse}
+.orbit__star{
+  position:absolute;top:-3px;left:50%;
+  width:3px;height:3px;border-radius:50%;
+  background:var(--star);
+  box-shadow:0 0 8px 2px rgba(232,240,255,.7);
+}
+.orbit__star--b{top:auto;bottom:-3px;background:var(--cyan);box-shadow:0 0 9px 2px rgba(34,211,238,.7)}
+.orbit__star--c{top:50%;left:-3px;background:var(--magenta);box-shadow:0 0 9px 2px rgba(192,38,211,.6)}
+
+/* ============================================================
+   TRANSITION · contract → pulse → expand
+   ============================================================ */
+body.is-warping .portal{animation:warp 1.5s var(--ease-cine) forwards}
+@keyframes warp{
+  0%  {transform:scale(1)}
+  22% {transform:scale(.72)}          /* contract */
+  34% {transform:scale(.66)}          /* energy builds */
+  48% {transform:scale(1.5)}          /* rapid expansion */
+  70% {transform:scale(1.12)}
+  100%{transform:scale(1)}
+}
+body.is-warping .hint{opacity:0}
+body.is-warping .horizon{filter:blur(2px);box-shadow:0 0 140px rgba(34,211,238,.9)}
+
+/* white cosmic pulse */
+.flash{
+  position:fixed;inset:0;z-index:3;pointer-events:none;opacity:0;
+  background:radial-gradient(circle at 50% 50%, rgba(255,255,255,.92) 0%, rgba(34,211,238,.5) 22%, transparent 56%);
+}
+body.is-warping .flash{animation:flash 1.5s var(--ease-cine) forwards}
+@keyframes flash{0%,24%{opacity:0}38%{opacity:.92}100%{opacity:0}}
+
+/* expanding shock rings */
+.shock{
+  position:fixed;top:50%;left:50%;z-index:3;pointer-events:none;
+  width:120px;height:120px;margin:-60px 0 0 -60px;
+  border-radius:50%;border:1px solid rgba(34,211,238,.6);
+  opacity:0;
+}
+body.is-warping .shock{animation:shock 1.4s var(--ease-cine) forwards}
+body.is-warping .shock--2{animation-delay:.16s;border-color:rgba(124,58,237,.5)}
+body.is-warping .shock--3{animation-delay:.32s;border-color:rgba(192,38,211,.4)}
+@keyframes shock{
+  0%,26%{opacity:0;transform:scale(.4)}
+  40%{opacity:.9}
+  100%{opacity:0;transform:scale(15)}
+}
+
+/* ============================================================
+   AUTH PORTAL — circular, orbital, still inside the galaxy
+   ============================================================ */
+.portal.is-open{
+  width:var(--auth);height:var(--auth);
+  cursor:default;
+}
+.portal.is-open:hover{transform:none}
+.portal.is-open .core,
+.portal.is-open .horizon-in{opacity:0;transition:opacity .5s}
+.portal.is-open .horizon{filter:blur(16px);opacity:.5;animation-duration:34s}
+.portal.is-open .lens{display:none}
+.portal.is-open .sphere{
+  background:
+    radial-gradient(circle at 30% 18%, rgba(255,255,255,.09), transparent 42%),
+    radial-gradient(circle at 50% 50%, rgba(11,20,55,.62), rgba(2,6,23,.78) 76%);
+  backdrop-filter:blur(22px) saturate(140%);
+  -webkit-backdrop-filter:blur(22px) saturate(140%);
+  border-color:rgba(180,215,255,.2);
+  box-shadow:
+    inset 0 1px 30px rgba(180,215,255,.11),
+    inset 0 0 90px rgba(124,58,237,.2),
+    0 0 90px rgba(34,211,238,.14);
+}
+
+.auth{
+  position:relative;z-index:4;
+  width:76%;                       /* keeps content off the circle's edge */
+  opacity:0;transform:translateY(14px) scale(.97);
+  pointer-events:none;
+  transition:opacity .7s var(--ease-cine) .1s,transform .7s var(--ease-cine) .1s;
+}
+.portal.is-open .auth{opacity:1;transform:none;pointer-events:auto}
+.portal:not(.is-open) .auth{display:none}
+
+/* ---- tabs -------------------------------------------------- */
+.tabs{
+  position:relative;
+  display:flex;justify-content:center;gap:34px;
+  margin-bottom:26px;
+}
+.tab{
+  appearance:none;background:none;border:0;padding:0 0 10px;
+  font-family:var(--ff-mono);
+  font-size:11px;font-weight:400;
+  letter-spacing:.28em;text-indent:.28em;
+  color:rgba(232,240,255,.42);
+  cursor:pointer;
+  transition:color .4s var(--ease-cine),text-shadow .4s var(--ease-cine);
+}
+.tab:hover{color:rgba(232,240,255,.72)}
+.tab.is-active{
+  color:var(--star);
+  text-shadow:0 0 14px rgba(34,211,238,.75);
+}
+.tab:focus-visible{outline:1px solid var(--cyan);outline-offset:4px;border-radius:2px}
+.tabs__underline{
+  position:absolute;bottom:0;height:1px;
+  background:linear-gradient(90deg,transparent,var(--cyan),var(--violet),transparent);
+  box-shadow:0 0 10px rgba(34,211,238,.85);
+  transition:transform .55s var(--ease-cine),width .55s var(--ease-cine);
+}
+
+/* ---- panels + cosmic sweep between them -------------------- */
+.panel{display:grid;gap:15px}
+.panel[hidden]{display:none}
+.panel.is-sweeping{animation:sweep .52s var(--ease-cine)}
+@keyframes sweep{
+  0%{opacity:0;transform:translateY(9px) rotate(-.6deg);filter:blur(5px)}
+  100%{opacity:1;transform:none;filter:blur(0)}
+}
+
+/* ---- fields ------------------------------------------------ */
+.field{position:relative}
+.field__label{
+  display:block;margin-bottom:7px;
+  font-family:var(--ff-mono);
+  font-size:8.5px;font-weight:400;
+  letter-spacing:.24em;
+  color:rgba(34,211,238,.66);
+  text-transform:uppercase;
+}
+.field__box{position:relative;border-radius:11px}
+
+/* travelling light around the border on focus */
+.field__box::before{
+  content:'';position:absolute;inset:-1px;border-radius:12px;
+  padding:1px;
+  background:conic-gradient(from var(--a,0deg),
+    transparent 0deg,var(--cyan) 40deg,var(--violet) 90deg,transparent 140deg,transparent 360deg);
+  -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);
+  -webkit-mask-composite:xor;
+  mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);
+  mask-composite:exclude;
+  opacity:0;transition:opacity .35s var(--ease-cine);
+  pointer-events:none;
+}
+.field__box.is-lit::before{opacity:1;animation:trace 2.6s linear infinite}
+@keyframes trace{to{--a:360deg}}
+@property --a{syntax:'<angle>';inherits:false;initial-value:0deg}
+
+.input{
+  width:100%;
+  padding:12px 40px 12px 14px;
+  border-radius:11px;
+  background:rgba(2,6,23,.42);
+  border:1px solid var(--glass-brd);
+  color:var(--star);
+  font-family:var(--ff-ui);
+  font-size:13.5px;font-weight:300;
+  letter-spacing:.012em;
+  transition:border-color .35s,box-shadow .35s,background .35s;
+}
+.input::placeholder{color:rgba(232,240,255,.26);font-weight:200}
+.input:focus{
+  outline:none;
+  border-color:rgba(34,211,238,.5);
+  background:rgba(2,6,23,.6);
+  box-shadow:0 0 0 3px rgba(34,211,238,.09),inset 0 0 22px rgba(34,211,238,.07);
+}
+
+.peek{
+  position:absolute;right:6px;top:50%;transform:translateY(-50%);
+  width:30px;height:30px;
+  display:grid;place-items:center;
+  background:none;border:0;border-radius:8px;
+  color:rgba(232,240,255,.44);cursor:pointer;
+  transition:color .3s,background .3s;
+}
+.peek:hover{color:var(--cyan);background:rgba(34,211,238,.08)}
+.peek:focus-visible{outline:1px solid var(--cyan);outline-offset:1px}
+.peek svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.5}
+
+/* ---- row: forgot ------------------------------------------- */
+.row-end{display:flex;justify-content:flex-end;margin-top:-4px}
+.link{
+  background:none;border:0;padding:0;
+  font-family:var(--ff-mono);
+  font-size:9.5px;letter-spacing:.1em;
+  color:rgba(34,211,238,.72);
+  cursor:pointer;
+  transition:color .3s,text-shadow .3s;
+}
+.link:hover{color:var(--cyan);text-shadow:0 0 12px rgba(34,211,238,.7)}
+.link:focus-visible{outline:1px solid var(--cyan);outline-offset:3px;border-radius:2px}
+
+/* ---- primary button ---------------------------------------- */
+.cta{
+  position:relative;overflow:hidden;
+  margin-top:6px;
+  padding:13px 20px;
+  border:1px solid rgba(180,215,255,.22);
+  border-radius:12px;
+  background:linear-gradient(100deg,
+    rgba(34,211,238,.9) 0%,
+    rgba(59,130,246,.9) 42%,
+    rgba(124,58,237,.92) 100%);
+  background-size:190% 100%;
+  color:#020617;
+  font-family:var(--ff-mono);
+  font-size:11px;font-weight:500;
+  letter-spacing:.26em;text-indent:.26em;
+  cursor:pointer;
+  box-shadow:0 6px 26px rgba(34,211,238,.24),inset 0 1px 0 rgba(255,255,255,.34);
+  transition:transform .35s var(--ease-cine),box-shadow .35s,background-position .7s var(--ease-cine);
+}
+.cta:hover{
+  transform:scale(1.022);
+  background-position:100% 0;
+  box-shadow:0 10px 40px rgba(34,211,238,.42),inset 0 1px 0 rgba(255,255,255,.44);
+}
+.cta:active{transform:scale(.988)}
+.cta:focus-visible{outline:2px solid var(--cyan);outline-offset:3px}
+/* light sweep */
+.cta::after{
+  content:'';position:absolute;top:0;left:-60%;width:45%;height:100%;
+  background:linear-gradient(100deg,transparent,rgba(255,255,255,.55),transparent);
+  transform:skewX(-18deg);
+  transition:left .8s var(--ease-cine);
+}
+.cta:hover::after{left:120%}
+
+/* click ripple */
+.ripple{
+  position:absolute;border-radius:50%;pointer-events:none;
+  background:radial-gradient(circle,rgba(255,255,255,.85),rgba(34,211,238,.35) 45%,transparent 70%);
+  animation:ripple .62s var(--ease-cine) forwards;
+}
+@keyframes ripple{
+  0%{width:0;height:0;opacity:.9;transform:translate(-50%,-50%)}
+  100%{width:340px;height:340px;opacity:0;transform:translate(-50%,-50%)}
+}
+
+/* ---- footer swap ------------------------------------------- */
+.swap{
+  margin-top:4px;text-align:center;
+  font-size:11px;font-weight:200;
+  color:rgba(232,240,255,.42);
+}
+.swap button{
+  background:none;border:0;padding:0;margin-left:5px;
+  font-family:var(--ff-mono);font-size:10px;letter-spacing:.14em;
+  color:var(--cyan);cursor:pointer;
+  transition:text-shadow .3s;
+}
+.swap button:hover{text-shadow:0 0 12px rgba(34,211,238,.8)}
+.swap button:focus-visible{outline:1px solid var(--cyan);outline-offset:3px;border-radius:2px}
+
+/* ============================================================
+   RESPONSIVE
+   ============================================================ */
+@media (max-width:640px){
+  .auth{width:84%}
+  .tabs{gap:24px}
+  .ring--3,.orbit--slow{display:none}      /* thin out the orbitals */
+  .neb{filter:blur(52px)}
+  /* squircle keeps the cosmic read without cramping the form */
+  .portal.is-open{
+    width:min(92vw,420px);
+    height:auto;
+    padding:40px 22px;
+    border-radius:38px;
+  }
+  .portal.is-open .sphere,
+  .portal.is-open .horizon{border-radius:38px}
+  .portal.is-open .horizon{inset:0;filter:blur(24px);opacity:.32}
+  .portal.is-open .ring{border-radius:44px}
+}
+@media (max-width:400px){
+  .portal.is-open{padding:32px 16px}
+  .auth{width:100%}
+}
+
+/* ============================================================
+   REDUCED MOTION — subtle fades only
+   ============================================================ */
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{
+    animation-duration:.01ms!important;
+    animation-iteration-count:1!important;
+    transition-duration:.16s!important;
+  }
+  .neb,.rays,.orbit,.ring,.horizon,.horizon-in,.bloom{animation:none!important}
+  .portal:hover{transform:none}
+}
+
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+</style>
+</head>
+<body>
+
+<!-- ============ GALAXY ============ -->
+<div class="sky" aria-hidden="true">
+  <div class="sky__void"></div>
+  <div class="neb neb--violet"></div>
+  <div class="neb neb--cyan"></div>
+  <div class="neb neb--magenta"></div>
+  <div class="neb neb--indigo"></div>
+  <div class="galaxy galaxy--1"></div>
+  <div class="galaxy galaxy--2"></div>
+  <div class="galaxy galaxy--3"></div>
+  <div class="rays"></div>
+  <div class="fog"></div>
+</div>
+<canvas id="field" aria-hidden="true"></canvas>
+
+<!-- transition overlays -->
+<div class="flash" aria-hidden="true"></div>
+<div class="shock shock--1" aria-hidden="true"></div>
+<div class="shock shock--2" aria-hidden="true"></div>
+<div class="shock shock--3" aria-hidden="true"></div>
+
+<!-- ============ STAGE ============ -->
+<main class="stage">
+  <div class="portal" id="portal" role="button" tabindex="0"
+       aria-label="Enter the portal to sign in">
+
+    <span class="ring ring--1"></span>
+    <span class="ring ring--2"></span>
+    <span class="ring ring--3"></span>
+
+    <span class="orbit"><i class="orbit__star"></i><i class="orbit__star orbit__star--b"></i></span>
+    <span class="orbit orbit--slow"><i class="orbit__star orbit__star--c"></i></span>
+
+    <span class="sphere"></span>
+    <span class="bloom"></span>
+    <span class="horizon"></span>
+    <span class="horizon-in"></span>
+    <span class="core"></span>
+    <span class="lens" id="lens"></span>
+
+    <!-- hint: deliberately not a button -->
+    <span class="hint" id="hint">
+      <span class="hint__word">ENTER</span>
+      <span class="hint__coord">RA 17h 45m · DEC −29° 00′ · Mv 4.83</span>
+    </span>
+
+    <!-- ============ AUTH (revealed from inside) ============ -->
+    <div class="auth" id="auth">
+      <div class="tabs" role="tablist" aria-label="Authentication">
+        <button class="tab is-active" id="tab-login" role="tab"
+                aria-selected="true" aria-controls="panel-login">LOGIN</button>
+        <button class="tab" id="tab-signup" role="tab"
+                aria-selected="false" aria-controls="panel-signup">SIGNUP</button>
+        <span class="tabs__underline" id="underline"></span>
+      </div>
+
+      <!-- LOGIN -->
+      <form class="panel" id="panel-login" role="tabpanel" aria-labelledby="tab-login" novalidate>
+        <div class="field">
+          <label class="field__label" for="li-id">Email or Username</label>
+          <div class="field__box">
+            <input class="input" id="li-id" type="text" autocomplete="username"
+                   placeholder="navigator@orion.io">
+          </div>
+        </div>
+        <div class="field">
+          <label class="field__label" for="li-pw">Password</label>
+          <div class="field__box">
+            <input class="input" id="li-pw" type="password" autocomplete="current-password"
+                   placeholder="••••••••••">
+            <button class="peek" type="button" data-peek="li-pw" aria-label="Show password">
+              <svg viewBox="0 0 24 24"><path d="M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12z"/><circle cx="12" cy="12" r="2.6"/></svg>
+            </button>
+          </div>
+        </div>
+        <div class="row-end"><button class="link" type="button">Forgot Password?</button></div>
+        <button class="cta" type="submit" data-ripple>LOGIN</button>
+        <p class="swap">Don't have an account?<button type="button" data-go="signup">Sign Up</button></p>
+      </form>
+
+      <!-- SIGNUP -->
+      <form class="panel" id="panel-signup" role="tabpanel" aria-labelledby="tab-signup" hidden novalidate>
+        <div class="field">
+          <label class="field__label" for="su-name">Full Name</label>
+          <div class="field__box">
+            <input class="input" id="su-name" type="text" autocomplete="name" placeholder="Ada Lovelace">
+          </div>
+        </div>
+        <div class="field">
+          <label class="field__label" for="su-email">Email</label>
+          <div class="field__box">
+            <input class="input" id="su-email" type="email" autocomplete="email" placeholder="navigator@orion.io">
+          </div>
+        </div>
+        <div class="field">
+          <label class="field__label" for="su-pw">Password</label>
+          <div class="field__box">
+            <input class="input" id="su-pw" type="password" autocomplete="new-password" placeholder="••••••••••">
+            <button class="peek" type="button" data-peek="su-pw" aria-label="Show password">
+              <svg viewBox="0 0 24 24"><path d="M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12z"/><circle cx="12" cy="12" r="2.6"/></svg>
+            </button>
+          </div>
+        </div>
+        <div class="field">
+          <label class="field__label" for="su-pw2">Confirm Password</label>
+          <div class="field__box">
+            <input class="input" id="su-pw2" type="password" autocomplete="new-password" placeholder="••••••••••">
+            <button class="peek" type="button" data-peek="su-pw2" aria-label="Show password">
+              <svg viewBox="0 0 24 24"><path d="M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12z"/><circle cx="12" cy="12" r="2.6"/></svg>
+            </button>
+          </div>
+        </div>
+        <button class="cta" type="submit" data-ripple>CREATE ACCOUNT</button>
+        <p class="swap">Already have an account?<button type="button" data-go="login">Login</button></p>
+      </form>
+    </div>
+  </div>
+</main>
+
+<script>
+(() => {
+'use strict';
+
+const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const portal  = document.getElementById('portal');
+const lens    = document.getElementById('lens');
+const auth    = document.getElementById('auth');
+
+/* ============================================================
+   CANVAS FIELD — stars (3 parallax layers), dust, infall,
+   hyperspace streaks. One rAF loop, one canvas: cheaper than
+   any DOM-animated particle system.
+   ============================================================ */
+const cv = document.getElementById('field');
+const ctx = cv.getContext('2d', { alpha:true });
+
+let W=0,H=0,cx=0,cy=0,dpr=1;
+let stars=[], dust=[], infall=[], streaks=[];
+let mode='idle';                       // idle | warp
+let hover=false, t=0, raf=null;
+
+function density(){
+  const a = innerWidth*innerHeight;
+  if (innerWidth<640) return { star:130, dust:26 };   // mobile: lighter
+  if (innerWidth<1024) return { star:240, dust:44 };
+  return { star:Math.min(520, Math.round(a/3200)), dust:70 };
+}
+
+function build(){
+  const d = density();
+  stars = Array.from({length:d.star}, () => {
+    const layer = Math.random()<.55 ? 0 : (Math.random()<.6 ? 1 : 2);
+    return {
+      x:Math.random()*W, y:Math.random()*H,
+      r:(layer===2?1.5:layer===1?1:.7)*(.6+Math.random()*.7),
+      a:.25+Math.random()*.6,
+      tw:Math.random()*Math.PI*2,
+      tws:.006+Math.random()*.016,
+      layer
+    };
+  });
+  dust = Array.from({length:d.dust}, () => ({
+    x:Math.random()*W, y:Math.random()*H,
+    r:.5+Math.random()*1.3,
+    vx:(Math.random()-.5)*.09, vy:(Math.random()-.5)*.09,
+    a:.12+Math.random()*.3,
+    hue:Math.random()<.5?'34,211,238':'167,139,250'
+  }));
+  spawnInfall(innerWidth<640?16:34);
+}
+
+/* particles pulled toward the core */
+function spawnInfall(n){
+  const R = portal.offsetWidth/2;
+  for(let i=0;i<n;i++){
+    const ang = Math.random()*Math.PI*2;
+    const rad = R*(1.25+Math.random()*1.7);
+    infall.push({
+      ang, rad,
+      spin:(.0016+Math.random()*.0042)*(Math.random()<.5?1:-1),
+      pull:.055+Math.random()*.16,
+      r:.5+Math.random()*1.2,
+      a:.25+Math.random()*.55,
+      hue:Math.random()<.45?'34,211,238':(Math.random()<.5?'232,240,255':'192,38,211'),
+      max:R*3
+    });
+  }
+}
+
+function resize(){
+  dpr = Math.min(devicePixelRatio||1, 2);   // cap: retina fill-rate is the cost
+  W = innerWidth; H = innerHeight;
+  cx = W/2; cy = H/2;
+  cv.width = W*dpr; cv.height = H*dpr;
+  cv.style.width = W+'px'; cv.style.height = H+'px';
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  infall.length = 0;
+  build();
+}
+
+function draw(){
+  t++;
+  ctx.clearRect(0,0,W,H);
+
+  /* --- hyperspace: stars streak outward from the core --- */
+  if (mode==='warp'){
+    for (const s of streaks){
+      s.p += s.v; s.v *= 1.075;
+      const x1 = cx + Math.cos(s.ang)*s.p;
+      const y1 = cy + Math.sin(s.ang)*s.p;
+      const x2 = cx + Math.cos(s.ang)*(s.p - s.len);
+      const y2 = cy + Math.sin(s.ang)*(s.p - s.len);
+      const g = ctx.createLinearGradient(x1,y1,x2,y2);
+      g.addColorStop(0, `rgba(232,240,255,${s.a})`);
+      g.addColorStop(1, 'rgba(34,211,238,0)');
+      ctx.strokeStyle = g; ctx.lineWidth = s.w;
+      ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+      s.len = Math.min(s.len*1.05, 260);
+    }
+    streaks = streaks.filter(s => s.p < Math.max(W,H)*1.1);
+  }
+
+  /* --- L3 stars, parallax by layer --- */
+  const px = (mx-cx)*0.006, py = (my-cy)*0.006;
+  for (const s of stars){
+    s.tw += s.tws;
+    const off = (s.layer+1);
+    const a = s.a * (0.62 + 0.38*Math.sin(s.tw));
+    ctx.globalAlpha = a;
+    ctx.fillStyle = s.layer===2 ? 'rgba(200,225,255,1)' : '#fff';
+    ctx.beginPath();
+    ctx.arc(s.x + px*off, s.y + py*off, s.r, 0, 6.283);
+    ctx.fill();
+    /* brightest layer gets a soft bloom */
+    if (s.layer===2 && s.r>1.1){
+      ctx.globalAlpha = a*.22;
+      ctx.beginPath(); ctx.arc(s.x+px*off, s.y+py*off, s.r*3.4, 0, 6.283); ctx.fill();
+    }
+  }
+
+  /* --- L4 cosmic dust --- */
+  for (const d of dust){
+    d.x += d.vx; d.y += d.vy;
+    if (d.x<0) d.x=W; if (d.x>W) d.x=0;
+    if (d.y<0) d.y=H; if (d.y>H) d.y=0;
+    ctx.globalAlpha = d.a;
+    ctx.fillStyle = `rgba(${d.hue},1)`;
+    ctx.beginPath(); ctx.arc(d.x, d.y, d.r, 0, 6.283); ctx.fill();
+  }
+
+  /* --- L6 infall: orbit + spiral inward, respawn at the rim --- */
+  const speed = hover ? 2.1 : 1;
+  for (const p of infall){
+    p.ang += p.spin*speed;
+    p.rad -= p.pull*speed*(mode==='warp'?4:1);
+    if (p.rad < portal.offsetWidth*0.18){
+      p.rad = p.max*(.75+Math.random()*.25);
+      p.ang = Math.random()*Math.PI*2;
+    }
+    const x = cx + Math.cos(p.ang)*p.rad;
+    const y = cy + Math.sin(p.ang)*p.rad;
+    const fade = Math.min(1, p.rad/(p.max*.85));
+    ctx.globalAlpha = p.a*(1-fade*.35);
+    ctx.fillStyle = `rgba(${p.hue},1)`;
+    ctx.beginPath(); ctx.arc(x, y, p.r, 0, 6.283); ctx.fill();
+  }
+
+  /* --- input-focus attraction: dust drawn to the active field --- */
+  if (focusTarget){
+    const r = focusTarget.getBoundingClientRect();
+    const fx = r.left + r.width/2, fy = r.top + r.height/2;
+    for (let i=0;i<10;i++){
+      const a = t*0.05 + i*0.63;
+      const d = 42 + Math.sin(t*0.04+i)*26;
+      ctx.globalAlpha = .5 - (d/150);
+      ctx.fillStyle = 'rgba(34,211,238,1)';
+      ctx.beginPath();
+      ctx.arc(fx + Math.cos(a)*d*2.2, fy + Math.sin(a)*d*.6, 1.1, 0, 6.283);
+      ctx.fill();
+    }
+  }
+
+  ctx.globalAlpha = 1;
+  raf = requestAnimationFrame(draw);
+}
+
+/* static single frame for reduced-motion */
+function drawStatic(){
+  ctx.clearRect(0,0,W,H);
+  for (const s of stars){
+    ctx.globalAlpha = s.a;
+    ctx.fillStyle = '#fff';
+    ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, 6.283); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+
+let mx=0,my=0;
+addEventListener('pointermove', e => { mx=e.clientX; my=e.clientY; }, {passive:true});
+addEventListener('resize', () => { resize(); if(reduced) drawStatic(); }, {passive:true});
+
+/* pause the loop when the tab is hidden — no point burning GPU */
+document.addEventListener('visibilitychange', () => {
+  if (reduced) return;
+  if (document.hidden){ cancelAnimationFrame(raf); raf=null; }
+  else if (!raf) raf = requestAnimationFrame(draw);
+});
+
+resize();
+if (reduced) drawStatic(); else raf = requestAnimationFrame(draw);
+
+/* ============================================================
+   PORTAL INTERACTION
+   ============================================================ */
+let opened = false;
+
+portal.addEventListener('pointerenter', () => { if(!opened) hover = true; });
+portal.addEventListener('pointerleave', () => { hover = false; });
+
+/* cursor-tracked gravitational ripple */
+portal.addEventListener('pointermove', e => {
+  if (opened) return;
+  const r = portal.getBoundingClientRect();
+  lens.style.setProperty('--mx', ((e.clientX-r.left)/r.width*100)+'%');
+  lens.style.setProperty('--my', ((e.clientY-r.top)/r.height*100)+'%');
+});
+
+function enter(){
+  if (opened) return;
+  opened = true;
+  hover = false;
+  portal.setAttribute('aria-label','Sign in');
+
+  if (reduced){
+    document.body.classList.add('is-auth');
+    portal.classList.add('is-open');
+    portal.removeAttribute('role');
+    portal.removeAttribute('tabindex');
+    document.getElementById('li-id').focus();
+    layoutUnderline();
+    return;
+  }
+
+  /* hyperspace streaks, born at the core */
+  const n = innerWidth<640 ? 90 : 200;
+  streaks = Array.from({length:n}, () => ({
+    ang:Math.random()*Math.PI*2,
+    p:6+Math.random()*40,
+    v:1.6+Math.random()*4.6,
+    len:10+Math.random()*40,
+    w:.5+Math.random()*1.3,
+    a:.35+Math.random()*.6
+  }));
+  mode = 'warp';
+  spawnInfall(40);
+
+  document.body.classList.add('is-warping');
+
+  /* portal opens mid-flare, so the UI is revealed FROM the pulse */
+  setTimeout(() => {
+    document.body.classList.add('is-auth');
+    portal.classList.add('is-open');
+  }, 620);
+
+  setTimeout(() => {
+    document.body.classList.remove('is-warping');
+    mode = 'idle';
+    streaks = [];
+    portal.removeAttribute('role');
+    portal.removeAttribute('tabindex');
+    layoutUnderline();
+    document.getElementById('li-id').focus({preventScroll:true});
+  }, 1500);
+}
+
+portal.addEventListener('click', e => {
+  if (opened) return;
+  /* don't swallow clicks once the form exists */
+  if (e.target.closest('.auth')) return;
+  enter();
+});
+portal.addEventListener('keydown', e => {
+  if (opened) return;
+  if (e.key==='Enter' || e.key===' '){ e.preventDefault(); enter(); }
+});
+
+/* ============================================================
+   TABS  ·  LOGIN | SIGNUP
+   ============================================================ */
+const tabs = { login:document.getElementById('tab-login'), signup:document.getElementById('tab-signup') };
+const panels = { login:document.getElementById('panel-login'), signup:document.getElementById('panel-signup') };
+const underline = document.getElementById('underline');
+let current = 'login';
+
+function layoutUnderline(){
+  const el = tabs[current];
+  if (!el.offsetWidth) return;
+  underline.style.width = el.offsetWidth+'px';
+  underline.style.transform = `translateX(${el.offsetLeft - underline.parentElement.offsetLeft}px)`;
+}
+
+function show(next){
+  if (next===current) return;
+  current = next;
+
+  for (const k of ['login','signup']){
+    const on = k===next;
+    tabs[k].classList.toggle('is-active', on);
+    tabs[k].setAttribute('aria-selected', String(on));
+    panels[k].hidden = !on;
+  }
+  layoutUnderline();
+
+  /* cosmic energy sweep on the incoming panel */
+  const p = panels[next];
+  p.classList.remove('is-sweeping');
+  void p.offsetWidth;                        // reflow so the animation re-fires
+  p.classList.add('is-sweeping');
+
+  /* particles rotate: a brief infall burst sells the transformation */
+  spawnInfall(innerWidth<640?8:18);
+
+  p.querySelector('.input').focus({preventScroll:true});
+}
+
+tabs.login.addEventListener('click', () => show('login'));
+tabs.signup.addEventListener('click', () => show('signup'));
+document.querySelectorAll('[data-go]').forEach(b =>
+  b.addEventListener('click', () => show(b.dataset.go)));
+
+/* arrow-key tab navigation */
+Object.values(tabs).forEach(tab => tab.addEventListener('keydown', e => {
+  if (e.key==='ArrowRight' || e.key==='ArrowLeft'){
+    e.preventDefault();
+    const next = current==='login' ? 'signup' : 'login';
+    show(next); tabs[next].focus();
+  }
+}));
+addEventListener('resize', layoutUnderline, {passive:true});
+
+/* ============================================================
+   MICRO-INTERACTIONS
+   ============================================================ */
+let focusTarget = null;
+
+document.querySelectorAll('.input').forEach(inp => {
+  const box = inp.closest('.field__box');
+  inp.addEventListener('focus', () => { box.classList.add('is-lit'); focusTarget = inp; });
+  inp.addEventListener('blur',  () => { box.classList.remove('is-lit'); if(focusTarget===inp) focusTarget=null; });
+});
+
+/* password visibility */
+document.querySelectorAll('[data-peek]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const inp = document.getElementById(btn.dataset.peek);
+    const shown = inp.type === 'text';
+    inp.type = shown ? 'password' : 'text';
+    btn.setAttribute('aria-label', shown ? 'Show password' : 'Hide password');
+    btn.style.color = shown ? '' : 'var(--cyan)';
+  });
+});
+
+/* button click → cosmic ripple */
+document.querySelectorAll('[data-ripple]').forEach(btn => {
+  btn.addEventListener('click', e => {
+    if (reduced) return;
+    const r = btn.getBoundingClientRect();
+    const s = document.createElement('span');
+    s.className = 'ripple';
+    s.style.left = (e.clientX - r.left)+'px';
+    s.style.top  = (e.clientY - r.top)+'px';
+    btn.appendChild(s);
+    setTimeout(() => s.remove(), 640);
+    spawnInfall(10);
+  });
+});
+
+/* forms are visual-only here — wire to auth.service in your app */
+document.querySelectorAll('.panel').forEach(f =>
+  f.addEventListener('submit', e => e.preventDefault()));
+})();
+</script>
+</body>
+</html>
